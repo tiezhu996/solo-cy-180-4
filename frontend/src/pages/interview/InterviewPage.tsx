@@ -1,37 +1,60 @@
-// 采访工作台：选择项目 → 按问题录音 → 自动关联 → 一句话摘要 → 时间轴标注。
+// 采访工作台：选择项目 → 仅展示最新「已通过」提纲版本的问题 → 按问题录音 → 自动关联 → 一句话摘要 → 时间轴标注。
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import AudioPlayer from '../../components/AudioPlayer'
 import EmptyState from '../../components/EmptyState'
 import StatusBadge from '../../components/StatusBadge'
+import { PROJECT_STATUS_ARCHIVED } from '../../constants'
+import { useOutlineStore } from '../../stores/outlineStore'
 import { useProjectStore } from '../../stores/projectStore'
-import { useQuestionStore } from '../../stores/questionStore'
 import { useRecordingStore } from '../../stores/recordingStore'
 import { useTimelineStore } from '../../stores/timelineStore'
 import { formatDuration } from '../../utils/format'
+import type { OutlineQuestion, OutlineVersion } from '../../api/types'
 
 export default function InterviewPage() {
   const [params, setParams] = useSearchParams()
   const selectedProject = Number(params.get('project_id')) || 0
   const { projects, fetchList } = useProjectStore()
-  const { questions, fetchByProject } = useQuestionStore()
   const { fetchByProject: fetchRecordings } = useRecordingStore()
+  const { fetchByProject: fetchVersions, fetchVersion } = useOutlineStore()
   const [activeQuestion, setActiveQuestion] = useState(0)
+  const [approvedVersion, setApprovedVersion] = useState<OutlineVersion | null>(null)
+  const [approvedQuestions, setApprovedQuestions] = useState<OutlineQuestion[]>([])
   const [message, setMessage] = useState('')
+  const [error, setError] = useState('')
 
   useEffect(() => {
     fetchList({ page: 1, page_size: 100 })
   }, [fetchList])
 
   useEffect(() => {
-    if (selectedProject) {
-      fetchByProject(selectedProject)
-      fetchRecordings(selectedProject)
-      setActiveQuestion(0)
-    } else {
-      setActiveQuestion(0)
+    let cancelled = false
+    setApprovedVersion(null)
+    setApprovedQuestions([])
+    setActiveQuestion(0)
+    setError('')
+    if (!selectedProject) return
+    fetchRecordings(selectedProject)
+    fetchVersions(selectedProject)
+      .then(async (list) => {
+        if (cancelled) return
+        // 列表按版本号倒序，取第一个已通过版本，即最新生效提纲。
+        const approved = list.find((v) => v.status === 'approved')
+        if (!approved) {
+          setError('该项目还没有审核通过的提纲版本，暂不能录音。请先由采访员提交、档案员或管理员审核通过。')
+          return
+        }
+        const detail = await fetchVersion(selectedProject, approved.id)
+        if (cancelled) return
+        setApprovedVersion(detail)
+        setApprovedQuestions(detail.questions || [])
+      })
+      .catch(() => undefined)
+    return () => {
+      cancelled = true
     }
-  }, [selectedProject, fetchByProject, fetchRecordings])
+  }, [selectedProject, fetchRecordings, fetchVersions, fetchVersion])
 
   const chooseProject = (projectId: number) => {
     const next = new URLSearchParams(params)
@@ -43,12 +66,16 @@ export default function InterviewPage() {
     setParams(next)
   }
 
+  const selected = projects.find((p) => p.id === selectedProject)
+  const projectArchived = selected?.status === PROJECT_STATUS_ARCHIVED
+
   return (
     <div className="page">
       <div className="page-header">
         <h2>采访工作台</h2>
       </div>
       {message && <div className="toast success">{message}</div>}
+      {error && <div className="toast error">{error}</div>}
 
       <section className="card">
         <div className="card-title">选择采访项目</div>
@@ -60,6 +87,13 @@ export default function InterviewPage() {
             </option>
           ))}
         </select>
+        {approvedVersion && (
+          <div className="version-meta">
+            当前生效提纲：<StatusBadge status={approvedVersion.status} type="outline" /> v{approvedVersion.version_number}
+            （审核人：{approvedVersion.reviewer_name || '-'}）
+          </div>
+        )}
+        {projectArchived && <div className="toast error">该项目已归档，归档后禁止录音与摘要操作。</div>}
       </section>
 
       {selectedProject === 0 ? (
@@ -67,12 +101,15 @@ export default function InterviewPage() {
       ) : (
         <>
           <section className="card">
-            <div className="card-title">采访问题列表</div>
-            {questions.length === 0 ? (
-              <EmptyState title="该项目还没有采访问题" description="请先到项目详情页添加采访问题" />
+            <div className="card-title">采访问题列表（已通过版本）</div>
+            {approvedQuestions.length === 0 ? (
+              <EmptyState
+                title="暂无可录音的问题"
+                description="只有审核通过的提纲版本中的问题可以用于录音"
+              />
             ) : (
               <div className="question-tabs">
-                {questions.map((q, idx) => (
+                {approvedQuestions.map((q, idx) => (
                   <button
                     key={q.id}
                     className={`question-tab ${activeQuestion === q.id ? 'active' : ''}`}
@@ -85,14 +122,20 @@ export default function InterviewPage() {
             )}
           </section>
 
-          {activeQuestion > 0 && (
+          {activeQuestion > 0 && approvedVersion && !projectArchived && (
             <RecorderPanel
               projectId={selectedProject}
               questionId={activeQuestion}
-              onRecorded={(summary) => {
+              versionId={approvedVersion.id}
+              onRecorded={(summary, isError) => {
                 fetchRecordings(selectedProject)
-                setMessage(summary)
-                setTimeout(() => setMessage(''), 4000)
+                if (isError) {
+                  setError(summary)
+                  setTimeout(() => setError(''), 5000)
+                } else {
+                  setMessage(summary)
+                  setTimeout(() => setMessage(''), 4000)
+                }
               }}
             />
           )}
@@ -105,11 +148,13 @@ export default function InterviewPage() {
 function RecorderPanel({
   projectId,
   questionId,
+  versionId,
   onRecorded,
 }: {
   projectId: number
   questionId: number
-  onRecorded: (msg: string) => void
+  versionId: number
+  onRecorded: (msg: string, isError?: boolean) => void
 }) {
   const { create, uploadAudio, updateSummary, fetchByQuestion } = useRecordingStore()
   const { markers, fetchByRecording, create: createMarker } = useTimelineStore()
@@ -156,12 +201,18 @@ function RecorderPanel({
         setRecording(false)
         setUploading(1)
         try {
-          const created = await create({ project_id: projectId, question_id: questionId, duration_seconds: seconds })
+          // version_id 必填：只能引用已通过的提纲版本。
+          const created = await create({
+            project_id: projectId,
+            question_id: questionId,
+            version_id: versionId,
+            duration_seconds: seconds,
+          })
           await uploadAudio(created.id, blob, seconds, (p) => setUploading(p))
           await reload()
-          onRecorded('录音上传成功，已自动关联到当前问题')
+          onRecorded('录音上传成功，已自动关联到当前问题与已通过提纲版本')
         } catch (e) {
-          onRecorded(e instanceof Error ? e.message : '录音上传失败')
+          onRecorded(e instanceof Error ? e.message : '录音上传失败', true)
         } finally {
           setUploading(0)
           setSeconds(0)
@@ -258,11 +309,7 @@ function RecorderPanel({
                       {m.label}
                     </span>
                   ))}
-                <input
-                  placeholder="新增节点，如：讲到参军经历"
-                  style={{ maxWidth: 220 }}
-                  id={`marker-input-${r.id}`}
-                />
+                <input placeholder="新增节点，如：讲到参军经历" style={{ maxWidth: 220 }} id={`marker-input-${r.id}`} />
                 <button
                   className="btn btn-plain btn-small"
                   onClick={() => {

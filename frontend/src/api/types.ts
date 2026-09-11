@@ -1,5 +1,5 @@
 // 与后端 model/dto 对应的类型定义。
-import type { ProjectStatus, RecordingStatus, Role } from '../constants'
+import type { ProjectStatus, RecordingStatus, OutlineStatus, Role } from '../constants'
 
 export interface User {
   id: number
@@ -33,15 +33,42 @@ export interface Project {
 export interface Question {
   id: number
   project_id: number
+  version_id: number
   content: string
   sort_order: number
   created_at: string
+}
+
+export interface OutlineQuestion {
+  id: number
+  content: string
+  sort_order: number
+}
+
+export interface OutlineVersion {
+  id: number
+  project_id: number
+  version_number: number
+  status: OutlineStatus
+  based_on_version: number
+  created_by: number
+  submitted_by: number
+  submitted_at: string | null
+  reviewed_by: number
+  reviewer_name: string
+  reviewed_at: string | null
+  reject_reason: string
+  created_at: string
+  updated_at: string
+  questions?: OutlineQuestion[]
 }
 
 export interface Recording {
   id: number
   project_id: number
   question_id: number
+  version_id: number
+  question_snapshot: string
   audio_key: string
   duration_seconds: number
   summary: string

@@ -29,20 +29,44 @@ CREATE TABLE IF NOT EXISTS projects (
   INDEX idx_projects_created_by (created_by)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- 访谈提纲版本：一个项目多版本；draft 草稿 / submitted 待审核 / approved 已通过并锁定 / rejected 已退回（含退回原因）。
+CREATE TABLE IF NOT EXISTS outline_versions (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  project_id BIGINT UNSIGNED NOT NULL,
+  version_number INT NOT NULL DEFAULT 1,
+  status VARCHAR(32) NOT NULL DEFAULT 'draft',
+  based_on_version BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  created_by BIGINT UNSIGNED NOT NULL,
+  submitted_by BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  submitted_at DATETIME(3) NULL,
+  reviewed_by BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  reviewer_name VARCHAR(64) NOT NULL DEFAULT '',
+  reviewed_at DATETIME(3) NULL,
+  reject_reason VARCHAR(512) NOT NULL DEFAULT '',
+  created_at DATETIME(3) DEFAULT CURRENT_TIMESTAMP(3),
+  updated_at DATETIME(3) DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  UNIQUE INDEX uk_outline_project_version (project_id, version_number),
+  INDEX idx_outline_status (status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 CREATE TABLE IF NOT EXISTS questions (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   project_id BIGINT UNSIGNED NOT NULL,
+  version_id BIGINT UNSIGNED NOT NULL DEFAULT 0,
   content VARCHAR(512) NOT NULL,
   sort_order INT NOT NULL DEFAULT 0,
   created_at DATETIME(3) DEFAULT CURRENT_TIMESTAMP(3),
   updated_at DATETIME(3) DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
-  INDEX idx_questions_project (project_id)
+  INDEX idx_questions_project (project_id),
+  INDEX idx_questions_version (version_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS recordings (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   project_id BIGINT UNSIGNED NOT NULL,
   question_id BIGINT UNSIGNED NOT NULL,
+  version_id BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  question_snapshot VARCHAR(512) NOT NULL DEFAULT '',
   audio_key VARCHAR(255) DEFAULT '',
   duration_seconds INT NOT NULL DEFAULT 0,
   summary VARCHAR(512) DEFAULT '',
@@ -51,7 +75,8 @@ CREATE TABLE IF NOT EXISTS recordings (
   created_at DATETIME(3) DEFAULT CURRENT_TIMESTAMP(3),
   updated_at DATETIME(3) DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
   INDEX idx_recordings_project (project_id),
-  INDEX idx_recordings_question (question_id)
+  INDEX idx_recordings_question (question_id),
+  INDEX idx_recordings_version (version_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS timeline_markers (

@@ -114,6 +114,9 @@ func (r *projectRepository) Delete(id uint) error {
 		if err := tx.Where("project_id = ?", id).Delete(&model.Question{}).Error; err != nil {
 			return fmt.Errorf("delete questions of project %d: %w", id, err)
 		}
+		if err := tx.Where("project_id = ?", id).Delete(&model.OutlineVersion{}).Error; err != nil {
+			return fmt.Errorf("delete outline versions of project %d: %w", id, err)
+		}
 		if err := tx.Delete(&model.Project{}, id).Error; err != nil {
 			return fmt.Errorf("delete project %d: %w", id, err)
 		}

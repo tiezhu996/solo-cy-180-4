@@ -29,34 +29,77 @@ type recordingService struct {
 	recordingRepo repository.RecordingRepository
 	projectRepo   repository.ProjectRepository
 	questionRepo  repository.QuestionRepository
+	outlineRepo   repository.OutlineVersionRepository
 	logger        *slog.Logger
 }
 
 // NewRecordingService 构造录音服务。
-func NewRecordingService(recordingRepo repository.RecordingRepository, projectRepo repository.ProjectRepository, questionRepo repository.QuestionRepository, logger *slog.Logger) RecordingService {
-	return &recordingService{recordingRepo: recordingRepo, projectRepo: projectRepo, questionRepo: questionRepo, logger: logger}
+func NewRecordingService(recordingRepo repository.RecordingRepository, projectRepo repository.ProjectRepository, questionRepo repository.QuestionRepository, outlineRepo repository.OutlineVersionRepository, logger *slog.Logger) RecordingService {
+	return &recordingService{recordingRepo: recordingRepo, projectRepo: projectRepo, questionRepo: questionRepo, outlineRepo: outlineRepo, logger: logger}
+}
+
+// ensureProjectActive 加载项目并拦截跨项目引用与归档后操作。
+func (s *recordingService) ensureProjectActive(projectID uint) (*model.Project, error) {
+	project, err := s.projectRepo.FindByID(projectID)
+	if err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			return nil, util.NewAppError(constants.CodeNotFound, fmt.Sprintf("项目 %d 不存在", projectID), err)
+		}
+		return nil, util.NewAppError(constants.CodeInternal, fmt.Sprintf("查询项目 %d 失败", projectID), err)
+	}
+	if project.Status == constants.ProjectStatusArchived {
+		return nil, util.NewAppError(constants.CodeProjectArchived,
+			fmt.Sprintf("项目 %d 已归档，归档后禁止录音相关写操作", projectID), nil)
+	}
+	return project, nil
 }
 
 func (s *recordingService) Create(actor *model.User, req *dto.CreateRecordingRequest) (*model.Recording, error) {
-	if _, err := s.projectRepo.FindByID(req.ProjectID); err != nil {
-		if errors.Is(err, repository.ErrNotFound) {
-			return nil, util.NewAppError(constants.CodeNotFound, fmt.Sprintf("项目 %d 不存在", req.ProjectID), err)
-		}
-		return nil, util.NewAppError(constants.CodeInternal, fmt.Sprintf("查询项目 %d 失败", req.ProjectID), err)
+	project, err := s.ensureProjectActive(req.ProjectID)
+	if err != nil {
+		return nil, err
 	}
-	if _, err := s.questionRepo.FindByID(req.QuestionID); err != nil {
+	// 录音只能选择已通过（锁定）的提纲版本。
+	version, err := s.outlineRepo.FindByID(req.VersionID)
+	if err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			return nil, util.NewAppError(constants.CodeNotFound, fmt.Sprintf("提纲版本 %d 不存在", req.VersionID), err)
+		}
+		return nil, util.NewAppError(constants.CodeInternal, fmt.Sprintf("查询提纲版本 %d 失败", req.VersionID), err)
+	}
+	// 跨项目引用版本必须拒绝。
+	if version.ProjectID != project.ID {
+		return nil, util.NewAppError(constants.CodeCrossProjectRef,
+			fmt.Sprintf("提纲版本 %d 属于项目 %d，不能在项目 %d 下录音，跨项目引用被拒绝",
+				version.ID, version.ProjectID, project.ID), nil)
+	}
+	if version.Status != constants.OutlineStatusApproved {
+		return nil, util.NewAppError(constants.CodeNotApproved,
+			fmt.Sprintf("提纲版本 v%d 当前为 %s 状态，录音只能选择已通过的版本",
+				version.VersionNumber, util.OutlineStatusText(version.Status)), nil)
+	}
+	question, err := s.questionRepo.FindByID(req.QuestionID)
+	if err != nil {
 		if errors.Is(err, repository.ErrNotFound) {
 			return nil, util.NewAppError(constants.CodeNotFound, fmt.Sprintf("问题 %d 不存在", req.QuestionID), err)
 		}
 		return nil, util.NewAppError(constants.CodeInternal, fmt.Sprintf("查询问题 %d 失败", req.QuestionID), err)
 	}
+	// 问题必须与录音同项目、且属于所选已通过版本，跨项目/跨版本引用一律拒绝。
+	if question.ProjectID != project.ID || question.VersionID != version.ID {
+		return nil, util.NewAppError(constants.CodeCrossProjectRef,
+			fmt.Sprintf("问题 %d 不属于项目 %d 的已通过提纲版本 v%d，跨项目或跨版本引用被拒绝",
+				question.ID, project.ID, version.VersionNumber), nil)
+	}
 	recording := &model.Recording{
-		ProjectID:       req.ProjectID,
-		QuestionID:      req.QuestionID,
-		DurationSeconds: req.DurationSeconds,
-		Summary:         req.Summary,
-		Status:          constants.RecordingStatusRecording,
-		CreatedBy:       actor.ID,
+		ProjectID:        req.ProjectID,
+		QuestionID:       req.QuestionID,
+		VersionID:        version.ID,
+		QuestionSnapshot: question.Content, // 保留录音当时的问题内容，后续新版提纲不影响历史录音
+		DurationSeconds:  req.DurationSeconds,
+		Summary:          req.Summary,
+		Status:           constants.RecordingStatusRecording,
+		CreatedBy:        actor.ID,
 	}
 	if err := s.recordingRepo.Create(recording); err != nil {
 		return nil, util.NewAppError(constants.CodeInternal, fmt.Sprintf("创建问题 %d 的录音失败", req.QuestionID), err)
@@ -100,6 +143,9 @@ func (s *recordingService) Update(actor *model.User, id uint, req *dto.UpdateRec
 		}
 		return nil, util.NewAppError(constants.CodeInternal, fmt.Sprintf("查询录音 %d 失败", id), err)
 	}
+	if _, err := s.ensureProjectActive(recording.ProjectID); err != nil {
+		return nil, err
+	}
 	if req.DurationSeconds > 0 {
 		recording.DurationSeconds = req.DurationSeconds
 	}
@@ -131,6 +177,9 @@ func (s *recordingService) UpdateSummary(actor *model.User, id uint, summary str
 		}
 		return nil, util.NewAppError(constants.CodeInternal, fmt.Sprintf("查询录音 %d 失败", id), err)
 	}
+	if _, err := s.ensureProjectActive(recording.ProjectID); err != nil {
+		return nil, err
+	}
 	recording.Summary = summary
 	if err := s.recordingRepo.Update(recording); err != nil {
 		return nil, util.NewAppError(constants.CodeInternal, fmt.Sprintf("更新录音 %d 摘要失败", id), err)
@@ -147,6 +196,9 @@ func (s *recordingService) AttachAudio(actor *model.User, id uint, audioKey stri
 		}
 		return nil, util.NewAppError(constants.CodeInternal, fmt.Sprintf("查询录音 %d 失败", id), err)
 	}
+	if _, err := s.ensureProjectActive(recording.ProjectID); err != nil {
+		return nil, err
+	}
 	recording.AudioKey = audioKey
 	if duration > 0 {
 		recording.DurationSeconds = duration
@@ -162,11 +214,15 @@ func (s *recordingService) AttachAudio(actor *model.User, id uint, audioKey stri
 }
 
 func (s *recordingService) Delete(actor *model.User, id uint) error {
-	if _, err := s.recordingRepo.FindByID(id); err != nil {
+	recording, err := s.recordingRepo.FindByID(id)
+	if err != nil {
 		if errors.Is(err, repository.ErrNotFound) {
 			return util.NewAppError(constants.CodeNotFound, fmt.Sprintf("录音 %d 不存在", id), err)
 		}
 		return util.NewAppError(constants.CodeInternal, fmt.Sprintf("查询录音 %d 失败", id), err)
+	}
+	if _, err := s.ensureProjectActive(recording.ProjectID); err != nil {
+		return err
 	}
 	if err := s.recordingRepo.Delete(id); err != nil {
 		return util.NewAppError(constants.CodeInternal, fmt.Sprintf("删除录音 %d 失败", id), err)

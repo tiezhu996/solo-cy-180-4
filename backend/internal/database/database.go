@@ -30,15 +30,8 @@ func New(cfg *config.Config, logger *slog.Logger) (*gorm.DB, error) {
 	sqlDB.SetMaxIdleConns(10)
 	sqlDB.SetConnMaxLifetime(time.Hour)
 
-	if err := db.AutoMigrate(
-		&model.User{},
-		&model.Project{},
-		&model.Question{},
-		&model.Recording{},
-		&model.TimelineMarker{},
-		&model.AuditLog{},
-	); err != nil {
-		return nil, fmt.Errorf("auto migrate: %w", err)
+	if err := Migrate(db); err != nil {
+		return nil, err
 	}
 	logger.Info("database migrated", "host", cfg.DBHost, "db", cfg.DBName)
 	return db, nil

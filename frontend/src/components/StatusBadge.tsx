@@ -1,9 +1,9 @@
 // 通用状态徽标组件，跨页面复用。
-import { PROJECT_STATUS_TEXT, RECORDING_STATUS_TEXT } from '../constants'
+import { OUTLINE_STATUS_TEXT, PROJECT_STATUS_TEXT, RECORDING_STATUS_TEXT } from '../constants'
 
 interface StatusBadgeProps {
   status: string
-  type?: 'project' | 'recording'
+  type?: 'project' | 'recording' | 'outline'
 }
 
 const STYLES: Record<string, string> = {
@@ -15,9 +15,18 @@ const STYLES: Record<string, string> = {
   processing: 'badge-processing',
   ready: 'badge-ready',
   failed: 'badge-failed',
+  submitted: 'badge-submitted',
+  approved: 'badge-approved',
+  rejected: 'badge-rejected',
+}
+
+const TEXT_MAP = {
+  project: PROJECT_STATUS_TEXT,
+  recording: RECORDING_STATUS_TEXT,
+  outline: OUTLINE_STATUS_TEXT,
 }
 
 export default function StatusBadge({ status, type = 'project' }: StatusBadgeProps) {
-  const text = type === 'project' ? PROJECT_STATUS_TEXT[status] : RECORDING_STATUS_TEXT[status]
+  const text = TEXT_MAP[type][status]
   return <span className={`status-badge ${STYLES[status] || 'badge-default'}`}>{text || status}</span>
 }

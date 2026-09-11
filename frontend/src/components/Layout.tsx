@@ -1,7 +1,7 @@
 // 应用主布局：顶部导航 + 内容区。
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../stores/authStore'
-import { ROLE_ADMIN, ROLE_TEXT } from '../constants'
+import { ROLE_ADMIN, ROLE_ARCHIVIST, ROLE_TEXT } from '../constants'
 
 export default function Layout() {
   const { user, logout, hasRole } = useAuthStore()
@@ -26,6 +26,11 @@ export default function Layout() {
           <NavLink to="/interview" className={({ isActive }) => (isActive ? 'nav-link active' : 'nav-link')}>
             采访工作台
           </NavLink>
+          {hasRole(ROLE_ARCHIVIST, ROLE_ADMIN) && (
+            <NavLink to="/outline-review" className={({ isActive }) => (isActive ? 'nav-link active' : 'nav-link')}>
+              提纲审核
+            </NavLink>
+          )}
           {hasRole(ROLE_ADMIN) && (
             <NavLink to="/audit" className={({ isActive }) => (isActive ? 'nav-link active' : 'nav-link')}>
               审计日志

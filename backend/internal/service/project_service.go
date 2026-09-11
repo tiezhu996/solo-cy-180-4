@@ -95,6 +95,10 @@ func (s *projectService) Update(actor *model.User, id uint, req *dto.UpdateProje
 		}
 		return nil, util.NewAppError(constants.CodeInternal, fmt.Sprintf("查询项目 %d 失败", id), err)
 	}
+	if project.Status == constants.ProjectStatusArchived {
+		return nil, util.NewAppError(constants.CodeProjectArchived,
+			fmt.Sprintf("项目 %d 已归档，归档后禁止修改项目信息", id), nil)
+	}
 	if req.Title != "" {
 		project.Title = req.Title
 	}
@@ -140,11 +144,16 @@ func (s *projectService) TransitionStatus(actor *model.User, id uint, status str
 }
 
 func (s *projectService) Delete(actor *model.User, id uint) error {
-	if _, err := s.projectRepo.FindByID(id); err != nil {
+	project, err := s.projectRepo.FindByID(id)
+	if err != nil {
 		if errors.Is(err, repository.ErrNotFound) {
 			return util.NewAppError(constants.CodeNotFound, fmt.Sprintf("项目 %d 不存在", id), err)
 		}
 		return util.NewAppError(constants.CodeInternal, fmt.Sprintf("查询项目 %d 失败", id), err)
+	}
+	if project.Status == constants.ProjectStatusArchived {
+		return util.NewAppError(constants.CodeProjectArchived,
+			fmt.Sprintf("项目 %d 已归档，归档后禁止删除", id), nil)
 	}
 	if err := s.projectRepo.Delete(id); err != nil {
 		return util.NewAppError(constants.CodeInternal, fmt.Sprintf("删除项目 %d 失败", id), err)

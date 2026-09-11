@@ -50,6 +50,19 @@ export const RECORDING_STATUS_TEXT: Record<string, string> = {
   [RECORDING_STATUS_FAILED]: '失败',
 }
 
+// 访谈提纲版本审核状态机枚举（与后端 constants/outline_status.go 同步）
+export const OUTLINE_STATUS_DRAFT = 'draft'
+export const OUTLINE_STATUS_SUBMITTED = 'submitted'
+export const OUTLINE_STATUS_APPROVED = 'approved'
+export const OUTLINE_STATUS_REJECTED = 'rejected'
+
+export const OUTLINE_STATUS_TEXT: Record<string, string> = {
+  [OUTLINE_STATUS_DRAFT]: '草稿',
+  [OUTLINE_STATUS_SUBMITTED]: '待审核',
+  [OUTLINE_STATUS_APPROVED]: '已通过',
+  [OUTLINE_STATUS_REJECTED]: '已退回',
+}
+
 // 错误码（与后端 constants/error_codes.go 同步）
 export const ERROR_CODES = {
   OK: 0,
@@ -66,8 +79,13 @@ export const ERROR_CODES = {
   PROJECT_STATUS: 40902,
   RECORDING_STATUS: 40903,
   MARKER_CONFLICT: 40904,
+  OUTLINE_STATUS: 40905,
+  NOT_APPROVED: 40906,
+  CROSS_PROJECT_REF: 40907,
+  PROJECT_ARCHIVED: 40908,
 } as const
 
 export type ProjectStatus = typeof PROJECT_STATUS_DRAFT | typeof PROJECT_STATUS_IN_PROGRESS | typeof PROJECT_STATUS_COMPLETED | typeof PROJECT_STATUS_ARCHIVED
 export type RecordingStatus = typeof RECORDING_STATUS_RECORDING | typeof RECORDING_STATUS_PROCESSING | typeof RECORDING_STATUS_READY | typeof RECORDING_STATUS_FAILED
+export type OutlineStatus = typeof OUTLINE_STATUS_DRAFT | typeof OUTLINE_STATUS_SUBMITTED | typeof OUTLINE_STATUS_APPROVED | typeof OUTLINE_STATUS_REJECTED
 export type Role = typeof ROLE_ADMIN | typeof ROLE_INTERVIEWER | typeof ROLE_ARCHIVIST

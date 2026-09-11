@@ -22,10 +22,10 @@ type TimelineMarkerService interface {
 }
 
 type timelineMarkerService struct {
-	markerRepo repository.TimelineMarkerRepository
-	projectRepo repository.ProjectRepository
+	markerRepo    repository.TimelineMarkerRepository
+	projectRepo   repository.ProjectRepository
 	recordingRepo repository.RecordingRepository
-	logger     *slog.Logger
+	logger        *slog.Logger
 }
 
 // NewTimelineMarkerService 构造时间轴节点服务。
@@ -34,17 +34,29 @@ func NewTimelineMarkerService(markerRepo repository.TimelineMarkerRepository, pr
 }
 
 func (s *timelineMarkerService) Create(actor *model.User, req *dto.CreateTimelineMarkerRequest) (*model.TimelineMarker, error) {
-	if _, err := s.projectRepo.FindByID(req.ProjectID); err != nil {
+	project, err := s.projectRepo.FindByID(req.ProjectID)
+	if err != nil {
 		if errors.Is(err, repository.ErrNotFound) {
 			return nil, util.NewAppError(constants.CodeNotFound, fmt.Sprintf("项目 %d 不存在", req.ProjectID), err)
 		}
 		return nil, util.NewAppError(constants.CodeInternal, fmt.Sprintf("查询项目 %d 失败", req.ProjectID), err)
 	}
-	if _, err := s.recordingRepo.FindByID(req.RecordingID); err != nil {
+	if project.Status == constants.ProjectStatusArchived {
+		return nil, util.NewAppError(constants.CodeProjectArchived,
+			fmt.Sprintf("项目 %d 已归档，归档后禁止标注时间轴节点", req.ProjectID), nil)
+	}
+	recording, err := s.recordingRepo.FindByID(req.RecordingID)
+	if err != nil {
 		if errors.Is(err, repository.ErrNotFound) {
 			return nil, util.NewAppError(constants.CodeNotFound, fmt.Sprintf("录音 %d 不存在", req.RecordingID), err)
 		}
 		return nil, util.NewAppError(constants.CodeInternal, fmt.Sprintf("查询录音 %d 失败", req.RecordingID), err)
+	}
+	// 录音必须属于当前项目，跨项目标注节点一律拒绝。
+	if recording.ProjectID != req.ProjectID {
+		return nil, util.NewAppError(constants.CodeCrossProjectRef,
+			fmt.Sprintf("录音 %d 属于项目 %d，不能在项目 %d 下标注节点，跨项目引用被拒绝",
+				recording.ID, recording.ProjectID, req.ProjectID), nil)
 	}
 	marker := &model.TimelineMarker{
 		ProjectID:       req.ProjectID,
@@ -85,6 +97,14 @@ func (s *timelineMarkerService) Update(actor *model.User, id uint, req *dto.Upda
 		}
 		return nil, util.NewAppError(constants.CodeInternal, fmt.Sprintf("查询时间轴节点 %d 失败", id), err)
 	}
+	project, err := s.projectRepo.FindByID(marker.ProjectID)
+	if err != nil {
+		return nil, util.NewAppError(constants.CodeInternal, fmt.Sprintf("查询项目 %d 失败", marker.ProjectID), err)
+	}
+	if project.Status == constants.ProjectStatusArchived {
+		return nil, util.NewAppError(constants.CodeProjectArchived,
+			fmt.Sprintf("项目 %d 已归档，归档后禁止修改时间轴节点", project.ID), nil)
+	}
 	if req.TimestampSecond != 0 {
 		marker.TimestampSecond = req.TimestampSecond
 	}
@@ -102,11 +122,20 @@ func (s *timelineMarkerService) Update(actor *model.User, id uint, req *dto.Upda
 }
 
 func (s *timelineMarkerService) Delete(actor *model.User, id uint) error {
-	if _, err := s.markerRepo.FindByID(id); err != nil {
+	marker, err := s.markerRepo.FindByID(id)
+	if err != nil {
 		if errors.Is(err, repository.ErrNotFound) {
 			return util.NewAppError(constants.CodeNotFound, fmt.Sprintf("时间轴节点 %d 不存在", id), err)
 		}
 		return util.NewAppError(constants.CodeInternal, fmt.Sprintf("查询时间轴节点 %d 失败", id), err)
+	}
+	project, err := s.projectRepo.FindByID(marker.ProjectID)
+	if err != nil {
+		return util.NewAppError(constants.CodeInternal, fmt.Sprintf("查询项目 %d 失败", marker.ProjectID), err)
+	}
+	if project.Status == constants.ProjectStatusArchived {
+		return util.NewAppError(constants.CodeProjectArchived,
+			fmt.Sprintf("项目 %d 已归档，归档后禁止删除时间轴节点", project.ID), nil)
 	}
 	if err := s.markerRepo.Delete(id); err != nil {
 		return util.NewAppError(constants.CodeInternal, fmt.Sprintf("删除时间轴节点 %d 失败", id), err)

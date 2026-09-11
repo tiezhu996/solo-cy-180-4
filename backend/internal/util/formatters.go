@@ -44,6 +44,22 @@ func RecordingStatusText(status string) string {
 	}
 }
 
+// OutlineStatusText 返回提纲版本审核状态的展示文本（与前端徽标枚举同步）。
+func OutlineStatusText(status string) string {
+	switch status {
+	case constants.OutlineStatusDraft:
+		return "草稿"
+	case constants.OutlineStatusSubmitted:
+		return "待审核"
+	case constants.OutlineStatusApproved:
+		return "已通过"
+	case constants.OutlineStatusRejected:
+		return "已退回"
+	default:
+		return "未知"
+	}
+}
+
 // RoleText 返回角色的展示文本。
 func RoleText(role string) string {
 	switch role {

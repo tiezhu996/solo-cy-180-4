@@ -8,6 +8,7 @@ export function listRecordings(params: { project_id?: number; question_id?: numb
 export function createRecording(payload: {
   project_id: number
   question_id: number
+  version_id: number
   duration_seconds?: number
   summary?: string
 }) {

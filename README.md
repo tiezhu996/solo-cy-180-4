@@ -147,12 +147,16 @@ npm run dev                # 默认 http://localhost:5173，/api 代理到 http:
 | PUT | /api/v1/projects/:id | 更新项目 | 登录 |
 | PUT | /api/v1/projects/:id/status | 项目状态流转 | 登录 |
 | DELETE | /api/v1/projects/:id | 删除项目 | 登录 |
-| GET | /api/v1/projects/:id/questions | 问题列表 | 登录 |
-| POST | /api/v1/projects/:id/questions | 添加问题 | 登录 |
-| PUT | /api/v1/questions/:id | 更新问题 | 登录 |
-| DELETE | /api/v1/questions/:id | 删除问题 | 登录 |
+| GET | /api/v1/projects/:id/outline-versions | 提纲版本列表（版本查看） | 登录 |
+| POST | /api/v1/projects/:id/outline-versions | 采访员创建/复用草稿版本（body: base_version_id，基于已通过版本调整） | 采访员 |
+| GET | /api/v1/projects/:id/outline-versions/:vid | 提纲版本详情（含问题内容） | 登录 |
+| PUT | /api/v1/projects/:id/outline-versions/:vid/questions | 保存提纲草稿改动（新增/更新问题） | 采访员 |
+| DELETE | /api/v1/projects/:id/outline-versions/:vid/questions/:qid | 删除草稿中的问题 | 采访员 |
+| POST | /api/v1/projects/:id/outline-versions/:vid/submit | 提交提纲审核（重复提交被拒绝） | 采访员 |
+| GET | /api/v1/outlines/pending | 待审核提纲列表 | 档案员/管理员 |
+| POST | /api/v1/outlines/:vid/review | 审核提纲（approve 通过锁定 / reject 退回，退回必须带 reason） | 档案员/管理员 |
 | GET | /api/v1/recordings?project_id= 或 ?question_id= | 录音列表（复用 RecordingService.List） | 登录 |
-| POST | /api/v1/recordings | 创建录音记录 | 登录 |
+| POST | /api/v1/recordings | 创建录音记录（project_id+question_id+version_id，版本必须 approved 且同项目） | 登录 |
 | GET | /api/v1/recordings/:id | 录音详情 | 登录 |
 | PUT | /api/v1/recordings/:id | 更新录音 | 登录 |
 | PUT | /api/v1/recordings/:id/summary | 更新一句话摘要 | 登录 |
@@ -186,15 +190,36 @@ curl -sS -X POST http://localhost:9180/api/v1/projects \
 # 项目列表
 curl -sS "http://localhost:9180/api/v1/projects?page=1&page_size=10" -H "Authorization: Bearer $TOKEN"
 
-# 添加采访问题
-curl -sS -X POST http://localhost:9180/api/v1/projects/1/questions \
-  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
-  -d '{"content":"请您回忆一下童年时住过的老房子","sort_order":0}'
+# 采访员创建草稿提纲版本（保存改动时生成草稿）
+curl -sS -X POST http://localhost:9180/api/v1/projects/1/outline-versions \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' -d '{}'
 
-# 创建录音记录并上传音频
+# 保存草稿问题（question_id 省略或为 0 表示新增）
+curl -sS -X PUT http://localhost:9180/api/v1/projects/1/outline-versions/1/questions \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"questions":[{"content":"请您回忆一下童年时住过的老房子","sort_order":0}]}'
+
+# 提交审核（重复提交待审核版本会返回 40905）
+curl -sS -X POST http://localhost:9180/api/v1/projects/1/outline-versions/1/submit \
+  -H "Authorization: Bearer $TOKEN"
+
+# 档案员/管理员审核：通过（版本锁定）或退回（必须写原因）
+curl -sS -X POST http://localhost:9180/api/v1/outlines/1/review \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"action":"approve"}'
+curl -sS -X POST http://localhost:9180/api/v1/outlines/1/review \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"action":"reject","reason":"问题顺序需要调整，请补充早年经历"}'
+
+# 调整已通过提纲：基于 v1 另建新版本草稿，历史版本不覆盖
+curl -sS -X POST http://localhost:9180/api/v1/projects/1/outline-versions \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"base_version_id":1}'
+
+# 创建录音记录（version_id 必填，只能引用 approved 版本，问题须同属该版本与项目）
 curl -sS -X POST http://localhost:9180/api/v1/recordings \
   -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
-  -d '{"project_id":1,"question_id":1,"duration_seconds":30}'
+  -d '{"project_id":1,"question_id":1,"version_id":1,"duration_seconds":30}'
 curl -sS -X POST http://localhost:9180/api/v1/recordings/1/audio \
   -H "Authorization: Bearer $TOKEN" \
   -F "file=@interview.webm" -F "duration_seconds=30"
@@ -282,6 +307,36 @@ curl -sS "http://localhost:9180/api/v1/audit-logs?page=1&page_size=10" -H "Autho
 - `frontend/src/pages/projects/ProjectDetailPage.tsx`（时间线状态展示）
 - `frontend/src/pages/interview/InterviewPage.tsx`（录音面板状态展示）
 - `frontend/src/api/types.ts`（RecordingStatus 类型）
+
+### 4. 提纲版本审核状态 OutlineStatus（draft / submitted / approved / rejected）
+
+业务规则：采访员保存改动生成 `draft` 草稿 → 提交后变为 `submitted` 待审核 → 档案员/管理员审核：`approved`（通过并锁定，录音只能引用 approved 版本）或 `rejected`（退回，必须填写原因，修改后可再次提交）。调整已通过提纲时基于旧版本另建草稿版本，历史版本不覆盖。
+
+后端出现位置：
+- `backend/internal/constants/outline_status.go`（定义与 CanSubmitOutline / CanReviewOutline / CanEditOutline 状态机）
+- `backend/internal/model/outline_version.go`（OutlineVersion.status、退回原因、审核人字段）
+- `backend/internal/model/question.go`（version_id 归属）、`backend/internal/model/recording.go`（version_id + question_snapshot 快照）
+- `backend/internal/dto/outline_version.go`（SaveOutlineDraftRequest / ReviewOutlineRequest 的 action oneof、reason required 语义）
+- `backend/internal/dto/recording.go`（CreateRecordingRequest.version_id required）
+- `backend/internal/repository/outline_version_repository.go`（SELECT ... FOR UPDATE 下的草稿创建/提交/审核状态机）
+- `backend/internal/service/outline_service.go`（角色校验、退回原因校验、重复提交/重复审核/跨项目/归档拦截）
+- `backend/internal/service/recording_service.go`（只允许 approved 版本、跨项目引用拒绝、问题快照写入）
+- `backend/internal/handler/outline_handler.go`（保存/提交/审核接口）
+- `backend/internal/router/outline.go`（项目维度编辑路由 + /outlines 审核路由）
+- `backend/internal/util/formatters.go`（OutlineStatusText）
+- `backend/internal/constants/log_templates.go`（LogOutlineDraftCreate/Submit/Approve/Reject 等）
+- `backend/internal/constants/messages.go`（MsgOutline* 文案）
+- `backend/internal/constants/error_codes.go`（CodeOutlineStatus 40905 / CodeNotApproved 40906 / CodeCrossProjectRef 40907 / CodeProjectArchived 40908）
+
+前端出现位置：
+- `frontend/src/constants/index.ts`（OUTLINE_STATUS_* / OUTLINE_STATUS_TEXT / OutlineStatus 类型 / 错误码）
+- `frontend/src/api/outline.ts`、`frontend/src/stores/outlineStore.ts`（API 与状态管理）
+- `frontend/src/api/types.ts`（OutlineVersion / OutlineQuestion / Recording.version_id / question_snapshot）
+- `frontend/src/components/StatusBadge.tsx`（outline 类型徽标）
+- `frontend/src/components/OutlineEditor.tsx`（草稿编辑、保存、提交、退回原因展示、基于已通过版本新建草稿）
+- `frontend/src/pages/review/OutlineReviewPage.tsx`（档案员/管理员审核页：通过、退回必填原因）
+- `frontend/src/pages/interview/InterviewPage.tsx`（只展示最新 approved 版本问题、录音带 version_id）
+- `frontend/src/pages/projects/ProjectDetailPage.tsx`（版本查看、录音展示问题快照）
 
 ## Docker 部署说明
 

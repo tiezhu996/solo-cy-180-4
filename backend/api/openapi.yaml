@@ -73,12 +73,21 @@ paths:
       summary: 项目状态流转
       tags: [projects]
       security: [{ BearerAuth: [] }]
-  /projects/{projectId}/questions:
-    get: { summary: 项目问题列表, tags: [questions], security: [{ BearerAuth: [] }] }
-    post: { summary: 添加问题, tags: [questions], security: [{ BearerAuth: [] }] }
-  /questions/{id}:
-    put: { summary: 更新问题, tags: [questions], security: [{ BearerAuth: [] }] }
-    delete: { summary: 删除问题, tags: [questions], security: [{ BearerAuth: [] }] }
+  /projects/{id}/outline-versions:
+    get: { summary: 项目提纲版本列表（版本查看）, tags: [outline], security: [{ BearerAuth: [] }] }
+    post: { summary: 采访员创建/复用草稿版本（可基于已通过版本）, tags: [outline], security: [{ BearerAuth: [] }] }
+  /projects/{id}/outline-versions/{vid}:
+    get: { summary: 提纲版本详情（含问题内容）, tags: [outline], security: [{ BearerAuth: [] }] }
+  /projects/{id}/outline-versions/{vid}/questions:
+    put: { summary: 采访员保存提纲草稿改动（新增/更新问题）, tags: [outline], security: [{ BearerAuth: [] }] }
+  /projects/{id}/outline-versions/{vid}/questions/{qid}:
+    delete: { summary: 删除草稿版本中的问题, tags: [outline], security: [{ BearerAuth: [] }] }
+  /projects/{id}/outline-versions/{vid}/submit:
+    post: { summary: 采访员提交提纲审核（重复提交被拒绝）, tags: [outline], security: [{ BearerAuth: [] }] }
+  /outlines/pending:
+    get: { summary: 待审核提纲列表（仅档案员/管理员）, tags: [outline], security: [{ BearerAuth: [] }] }
+  /outlines/{vid}/review:
+    post: { summary: 审核提纲：approve 通过锁定 / reject 退回（reason 必填）, tags: [outline], security: [{ BearerAuth: [] }] }
   /recordings:
     get:
       summary: 录音列表（project_id 或 question_id）

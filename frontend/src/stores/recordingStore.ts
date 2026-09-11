@@ -14,7 +14,7 @@ interface RecordingState {
   loading: boolean
   fetchByProject: (projectId: number) => Promise<void>
   fetchByQuestion: (questionId: number) => Promise<Recording[]>
-  create: (payload: { project_id: number; question_id: number; duration_seconds?: number }) => Promise<Recording>
+  create: (payload: { project_id: number; question_id: number; version_id: number; duration_seconds?: number }) => Promise<Recording>
   uploadAudio: (id: number, blob: Blob, duration: number, onProgress?: (p: number) => void) => Promise<void>
   updateSummary: (id: number, summary: string) => Promise<void>
   remove: (id: number) => Promise<void>
