@@ -347,6 +347,10 @@ curl -sS "http://localhost:9180/api/v1/audit-logs?page=1&page_size=10" -H "Autho
   - 后端无法连接数据库：等待 `db` 服务 healthy（`docker compose ps` 查看），后端通过 `depends_on: condition: service_healthy` 自动等待。
   - 录音无法上传：请确认浏览器已授权麦克风；上传大小限制在 nginx `client_max_body_size 200m`。
   - 修改 JWT_SECRET 后需重启后端使 token 失效。
+- 提纲版本化升级（旧版数据库直接升级）：
+  - GORM AutoMigrate 已配置 `DisableForeignKeyConstraintWhenMigrating`，基线表只建索引不建外键，避免旧数据新增 `version_id` 列（默认 0）时因引用尚不存在的版本而触发 MySQL errno 1452 导致启动失败。
+  - 升级为每个项目幂等补建首版提纲：含旧问题或旧录音的项目补一个 `approved` v1 并把旧问题、旧录音整体挂载上去（旧录音因此仍满足“只能引用已通过版本”的不变量）；空项目补一个 `draft` v1。
+  - 旧问题的 `content`、`sort_order` 原样保留；旧录音的 `question_snapshot` 按同项目问题内容回填，历史音频 key、摘要、时间轴节点均不改动。回填可重复执行、不会重复建版本。
 
 ## License
 
